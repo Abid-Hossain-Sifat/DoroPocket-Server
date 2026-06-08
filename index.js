@@ -6,9 +6,8 @@ import { createAuth } from "./auth.js";
 import { toNodeHandler } from "better-auth/node";
 
 const app = express();
-const port = process.env.PORT;
+const port = process.env.PORT || 5000;
 
-// Enable CORS with Credentials and Origin matching the client
 app.use(
   cors({
     origin: process.env.NEXT_URL,
@@ -17,7 +16,7 @@ app.use(
 );
 app.use(express.json());
 
-const uri = process.env.MONGODB_URI
+const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -26,41 +25,58 @@ const client = new MongoClient(uri, {
   },
 });
 
-const run = async () => {
+// global variable
+let db;
+let collection;
+let auth;
+
+// DB connect
+const connectDB = async () => {
   try {
     await client.connect();
-    const db = client.db("DoroPocket");
-    const collection = db.collection("products");
+    db = client.db("DoroPocket");
+    collection = db.collection("products");
 
-    // Initialize Better Auth with shared DB and Client connections
-    const auth = createAuth(db, client);
-
-    // Mount Better Auth handler on /api/auth
+    // Better Auth initialize
+    auth = createAuth(db, client);
     app.use("/api/auth", toNodeHandler(auth));
 
-    // Products endpoints
-    app.get("/products", async (req, res) => {
-      const cursor = collection.find();
-      const final = await cursor.toArray();
-      res.send(final);
-    });
-
-    app.get("/products/:id", async (req, res) => {
-      const id = req.params.id;
-      const product = await collection.findOne({
-        _id: new ObjectId(id),
-      });
-      res.send(product);
-    });
-
-    await db.command({ ping: 1 });
     console.log("Connected to MongoDB successfully");
   } catch (error) {
-    console.error("Database connection/server startup failure:", error);
+    console.error("Database connection failure:", error);
   }
 };
 
-run().catch(console.dir);
+connectDB().catch(console.dir);
+
+// products route 
+app.get("/products", async (req, res) => {
+  if (!collection) {
+    return res.status(503).send("Database connecting, please try again...");
+  }
+  try {
+    const cursor = collection.find();
+    const final = await cursor.toArray();
+    res.send(final);
+  } catch (error) {
+    res.status(500).send("Error fetching products");
+  }
+});
+
+app.get("/products/:id", async (req, res) => {
+  if (!collection) {
+    return res.status(503).send("Database connecting, please try again...");
+  }
+  try {
+    const id = req.params.id;
+    const product = await collection.findOne({
+      _id: new ObjectId(id),
+    });
+    res.send(product);
+  } catch (error) {
+    res.status(500).send("Error fetching product");
+  }
+});
 
 app.get("/", (req, res) => {
   res.send("DoroPocket Express Server Running");
